@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto Deploy Web</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:'Segoe UI',system-ui,sans-serif;
+    background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:20px; color:#fff;
+  }
+  .container {
+    background:rgba(255,255,255,0.05); backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,0.1); border-radius:20px;
+    padding:40px; width:100%; max-width:520px;
+    box-shadow:0 25px 60px rgba(0,0,0,0.5);
+  }
+  h1 { text-align:center; margin-bottom:8px; font-size:26px;
+    background:linear-gradient(90deg,#00d2ff,#a855f7);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .subtitle { text-align:center; color:#a0a0b8; font-size:13px; margin-bottom:28px; }
+  .field { margin-bottom:18px; }
+  label { display:block; font-size:13px; color:#c5c5d8; margin-bottom:7px; font-weight:500; }
+  input {
+    width:100%; padding:12px 14px; border-radius:10px;
+    border:1px solid rgba(255,255,255,0.12);
+    background:rgba(0,0,0,0.25); color:#fff; font-size:14px;
+    outline:none; transition:0.2s;
+  }
+  input:focus { border-color:#00d2ff; box-shadow:0 0 0 3px rgba(0,210,255,0.15); }
+  input::placeholder { color:#6b6b85; }
+  input[type="file"] { padding:10px; cursor:pointer; font-size:13px; }
+  input[type="file"]::file-selector-button {
+    background:linear-gradient(90deg,#00d2ff,#a855f7); color:#fff;
+    border:none; padding:8px 14px; border-radius:8px; cursor:pointer;
+    margin-right:10px; font-weight:600; font-size:12px;
+  }
+  .btn {
+    width:100%; padding:14px; margin-top:10px; border:none; border-radius:12px;
+    background:linear-gradient(90deg,#00d2ff,#a855f7); color:#fff;
+    font-size:15px; font-weight:700; cursor:pointer; letter-spacing:0.5px;
+    transition:0.3s;
+  }
+  .btn:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 10px 30px rgba(0,210,255,0.4); }
+  .btn:disabled { opacity:0.6; cursor:not-allowed; }
+  .log {
+    margin-top:20px; background:rgba(0,0,0,0.4); border-radius:12px;
+    padding:16px; font-family:'Courier New',monospace; font-size:12.5px;
+    max-height:220px; overflow-y:auto; display:none;
+    border:1px solid rgba(255,255,255,0.08);
+  }
+  .log.show { display:block; }
+  .log-line { margin-bottom:6px; line-height:1.5; word-break:break-all; }
+  .log-info { color:#00d2ff; }
+  .log-success { color:#4ade80; }
+  .log-error { color:#f87171; }
+  .log-warn { color:#fbbf24; }
+  .link-box {
+    margin-top:12px; padding:12px;
+    background:rgba(74,222,128,0.1);
+    border:1px solid rgba(74,222,128,0.3);
+    border-radius:10px; display:none;
+  }
+  .link-box.show { display:block; }
+  .link-box a { color:#4ade80; text-decoration:none; font-weight:600; word-break:break-all; }
+  .link-box a:hover { text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🚀 Auto Deploy Web</h1>
+  <p class="subtitle">Langsung online tanpa ribet</p>
+
+  <div class="field">
+    <label>🌐 Nama Website</label>
+    <input type="text" id="projectName" placeholder="contoh: yonzofficialstore">
+  </div>
+
+  <div class="field">
+    <label>📦 File Website (.html atau .zip)</label>
+    <input type="file" id="fileInput" accept=".html,.htm,.zip">
+  </div>
+
+  <button class="btn" id="deployBtn" onclick="handleDeploy()">🚀 DEPLOY SEKARANG</button>
+
+  <div class="log" id="log"></div>
+  <div class="link-box" id="linkBox"></div>
+</div>
+
+<script>
+// ⚠️ GANTI INI dengan URL Cloudflare Worker kamu
+const WORKER_URL = 'https://deploy-anda.namakamu.workers.dev';
+
+const logEl = document.getElementById('log');
+const linkBox = document.getElementById('linkBox');
+const deployBtn = document.getElementById('deployBtn');
+
+function log(msg, type='info') {
+  logEl.classList.add('show');
+  const line = document.createElement('div');
+  line.className = 'log-line log-' + type;
+  line.textContent = `[${new Date().toLocaleTimeString('id-ID')}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function clearLog() {
+  logEl.innerHTML = '';
+  linkBox.classList.remove('show');
+  linkBox.innerHTML = '';
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadJSZip() {
+  if (window.JSZip) return window.JSZip;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = () => resolve(window.JSZip);
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function handleDeploy() {
+  const projectName = document.getElementById('projectName').value.trim().toLowerCase();
+  const file = document.getElementById('fileInput').files[0];
+
+  if (!projectName) return alert('Nama website wajib diisi!');
+  if (!/^[a-z0-9-]+$/.test(projectName)) return alert('Nama hanya boleh huruf kecil, angka, dan tanda -');
+  if (!file) return alert('Pilih file HTML atau ZIP!');
+
+  clearLog();
+  deployBtn.disabled = true;
+  deployBtn.textContent = '⏳ Sedang deploy...';
+
+  try {
+    const isZip = file.name.toLowerCase().endsWith('.zip');
+    const files = [];
+
+    if (!isZip) {
+      const base64 = await fileToBase64(file);
+      files.push({ path: 'index.html', content: base64 });
+      log('File HTML siap: index.html', 'info');
+    } else {
+      log('Mengextract ZIP...', 'info');
+      const JSZip = await loadJSZip();
+      const zip = await JSZip.loadAsync(file);
+      
+      for (const [path, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        if (path.includes('__MACOSX') || path.split('/').some(p => p.startsWith('.'))) continue;
+        const content = await entry.async('base64');
+        files.push({ path, content });
+      }
+      if (!files.length) throw new Error('ZIP kosong!');
+      log(`${files.length} file siap diupload.`, 'success');
+    }
+
+    log('Mengirim ke server deploy...', 'info');
+
+    const res = await fetch(WORKER_URL + '/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectName, files })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || 'Deploy gagal');
+
+    log('✅ Deploy berhasil!', 'success');
+    log(`Repository: ${data.repoUrl}`, 'success');
+    log(`Website: https://${data.projectName}.vercel.app`, 'success');
+
+    linkBox.classList.add('show');
+    linkBox.innerHTML = `
+      <div style="margin-bottom:8px;font-weight:700;color:#4ade80;">🎉 Website Kamu Sudah Online!</div>
+      <div style="margin-bottom:6px;font-size:13px;">
+        🌐 <a href="https://${data.projectName}.vercel.app" target="_blank">https://${data.projectName}.vercel.app</a>
+      </div>
+      <div style="font-size:13px;">
+        📦 <a href="${data.repoUrl}" target="_blank">${data.repoUrl}</a>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:#a0a0b8;">
+        Tunggu 10-60 detik sampai build Vercel selesai.
+      </div>
+    `;
+  } catch (err) {
+    log('❌ ' + err.message, 'error');
+    console.error(err);
+  } finally {
+    deployBtn.disabled = false;
+    deployBtn.textContent = '🚀 DEPLOY SEKARANG';
+  }
+}
+</script>
+</body>
+</html>
